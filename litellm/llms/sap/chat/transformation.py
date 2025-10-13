@@ -148,6 +148,7 @@ class GenAIHubOrchestrationConfig(OpenAIGPTConfig):
             "extra_headers",
             "parallel_tool_calls",
             "response_format",
+            "timeout"
         ]
 
     def _transform_request(

@@ -101,7 +101,7 @@ class GenAIHubOrchestration(BaseLLM):
         model: str,
         model_response: ModelResponse,
         print_verbose: Callable,
-        timeout: Optional[Union[float, httpx.Timeout]],
+        timeout: Optional[Union[float, httpx.Timeout, None]],
         encoding,
         logging_obj,
         optional_params: dict,
@@ -112,7 +112,7 @@ class GenAIHubOrchestration(BaseLLM):
             with temporary_headers_addition(extra_headers or {}):
                 response = await self.orchestration_client.astream(
                     config=config,
-                    # timeout=int(timeout) if isinstance(timeout, (float)) else timeout
+                    timeout=timeout
                 )
         except OrchestrationError as err:
             raise GenAIHubOrchestrationError(status_code=err.code, message=err.message)
@@ -152,7 +152,7 @@ class GenAIHubOrchestration(BaseLLM):
         model: str,
         model_response: ModelResponse,
         print_verbose: Callable,
-        timeout: Optional[Union[float, httpx.Timeout]],
+        timeout: Optional[Union[float, httpx.Timeout, None]],
         encoding,
         logging_obj,
         optional_params: dict,
@@ -163,7 +163,7 @@ class GenAIHubOrchestration(BaseLLM):
             with temporary_headers_addition(extra_headers or {}):
                 response = await self.orchestration_client.arun(
                     config=config,
-                    # timeout=int(timeout) if isinstance(timeout, (float)) else timeout
+                    timeout=timeout
                 )
         except OrchestrationError as err:
             raise GenAIHubOrchestrationError(status_code=err.code, message=err.message)
@@ -188,7 +188,7 @@ class GenAIHubOrchestration(BaseLLM):
         model: str,
         model_response: ModelResponse,
         print_verbose: Callable,
-        timeout: Optional[Union[float, httpx.Timeout]],
+        timeout: Optional[Union[float, httpx.Timeout, None]],
         encoding,
         logging_obj,
         optional_params: dict,
@@ -199,7 +199,7 @@ class GenAIHubOrchestration(BaseLLM):
             with temporary_headers_addition(extra_headers or {}):
                 response = self.orchestration_client.stream(
                     config=config,
-                    # timeout=int(timeout) if isinstance(timeout, (float)) else timeout
+                    timeout=timeout
                 )
         except OrchestrationError as err:
             raise GenAIHubOrchestrationError(status_code=err.code, message=err.message)
@@ -233,7 +233,7 @@ class GenAIHubOrchestration(BaseLLM):
         model: str,
         model_response: ModelResponse,
         print_verbose: Callable,
-        timeout: Optional[Union[float, httpx.Timeout]],
+        timeout: Optional[Union[float, httpx.Timeout, None]],
         encoding,
         logging_obj,
         optional_params: dict,
@@ -244,7 +244,7 @@ class GenAIHubOrchestration(BaseLLM):
             with temporary_headers_addition(extra_headers or {}):
                 response = self.orchestration_client.run(
                     config=config,
-                    # timeout=int(timeout) if isinstance(timeout, (float)) else timeout
+                    timeout=timeout
                 )
         except OrchestrationError as err:
             raise GenAIHubOrchestrationError(status_code=err.code, message=err.message)
