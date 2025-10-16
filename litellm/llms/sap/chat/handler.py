@@ -337,7 +337,6 @@ class GenAIHubOrchestration(BaseLLM):
                     else None
                 ),
             )
-
         elif stream is not None and stream is True:
             return self._streaming(
                 config=config,
