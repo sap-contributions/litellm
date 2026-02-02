@@ -104,6 +104,9 @@ class GenAIHubEmbeddingConfig(BaseEmbeddingConfig):
                         valid_deployments.append(
                             (deployment["deploymentUrl"], deployment["createdAt"])
                         )
+            if not valid_deployments:
+                raise GenAIHubOrchestrationError(status_code=400, message="No valid deployment found")
+
             return sorted(valid_deployments, key=lambda x: x[1], reverse=True)[0][0]
 
     def get_error_class(self, error_message, status_code, headers):

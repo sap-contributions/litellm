@@ -124,7 +124,9 @@ class GenAIHubOrchestrationConfig(OpenAIGPTConfig):
                 ).json()
                 if cfg.get("executableId") == "orchestration":
                     valid.append((dep["deploymentUrl"], dep["createdAt"]))
-            # newest first
+        if not valid:
+            raise GenAIHubOrchestrationError(status_code=400, message="No valid deployment found")
+        # newest first
         return sorted(valid, key=lambda x: x[1], reverse=True)[0][0]
 
     @classmethod
