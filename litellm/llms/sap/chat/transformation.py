@@ -157,9 +157,11 @@ class GenAIHubOrchestrationConfig(OpenAIGPTConfig):
             "response_format",
             "timeout",
         ]
+        # Only remove response_format for providers that don't support tool-based JSON mode
+        # Note: amazon is kept blocked because SAP removes tool_choice for amazon models,
+        # which is required for reliable tool-based JSON mode
         if (
-            model.startswith('anthropic')
-            or model.startswith("amazon")
+            model.startswith("amazon")
             or model.startswith("cohere")
             or model.startswith("alephalpha")
             or model == "gpt-4"
@@ -168,6 +170,42 @@ class GenAIHubOrchestrationConfig(OpenAIGPTConfig):
         if model.startswith("gemini") or model.startswith("amazon"):
             params.remove("tool_choice")
         return params
+
+    def map_openai_params(
+        self,
+        non_default_params: dict,
+        optional_params: dict,
+        model: str,
+        drop_params: bool,
+    ) -> dict:
+        """
+        Map OpenAI parameters to SAP-compatible parameters.
+
+        For Anthropic models, converts response_format to tool-based JSON mode
+        since SAP Orchestration doesn't pass through response_format natively for these.
+        """
+        # First, call parent class to handle standard parameter mapping
+        mapped_params = super().map_openai_params(
+            non_default_params, optional_params, model, drop_params
+        )
+
+        # Check if this model needs tool-based JSON mode for response_format
+        # Only anthropic models - amazon models don't support tool_choice on SAP
+        needs_tool_based_json = model.startswith("anthropic")
+
+        if "response_format" in non_default_params and needs_tool_based_json:
+            # Use base class utility to convert response_format to tool call
+            # This adds a tool named "json_tool_call" and sets json_mode=True
+            mapped_params = self._add_response_format_to_tools(
+                optional_params=mapped_params,
+                value=non_default_params["response_format"],
+                is_response_format_supported=False,  # Force tool conversion
+                enforce_tool_choice=True,
+            )
+            # Remove response_format since it's been converted to tool
+            mapped_params.pop("response_format", None)
+
+        return mapped_params
 
     def validate_environment(
         self,
@@ -204,7 +242,7 @@ class GenAIHubOrchestrationConfig(OpenAIGPTConfig):
         headers: dict,
     ) -> dict:
         model_params = {
-            k: v for k, v in optional_params.items() if k not in {"tools", "model_version", "deployment_url"}
+            k: v for k, v in optional_params.items() if k not in {"tools", "model_version", "deployment_url", "json_mode"}
         }
 
         model_version = optional_params.pop("model_version", "latest")
@@ -286,7 +324,41 @@ class GenAIHubOrchestrationConfig(OpenAIGPTConfig):
             original_response=raw_response.text,
             additional_args={"complete_input_dict": request_data},
         )
-        return ModelResponse.model_validate(raw_response.json()["final_result"])
+        response = ModelResponse.model_validate(raw_response.json()["final_result"])
+
+        # Convert json_tool_call response back to message content
+        if json_mode or optional_params.get("json_mode"):
+            response = self._convert_json_tool_response_to_content(response)
+
+        return response
+
+    def _convert_json_tool_response_to_content(self, response: ModelResponse) -> ModelResponse:
+        """
+        If the response contains a json_tool_call tool use, convert it to message content.
+        This matches OpenAI's response_format behavior.
+
+        Note: Uses dict-style access on tool_calls since LiteLLM types like
+        ChatCompletionMessageToolCall and Function support __getitem__.
+        """
+        from litellm.litellm_core_utils.llm_response_utils.convert_dict_to_response import (
+            _should_convert_tool_call_to_json_mode,
+        )
+
+        for choice in response.choices:
+            if choice.message and choice.message.tool_calls:
+                tool_calls = choice.message.tool_calls
+                if _should_convert_tool_call_to_json_mode(
+                    tool_calls=tool_calls,
+                    convert_tool_call_to_json_mode=True,
+                ):
+                    # Extract JSON from tool arguments and set as content
+                    # tool_calls[0]["function"]["arguments"] uses dict-style access
+                    json_content = tool_calls[0]["function"]["arguments"]
+                    choice.message.content = json_content
+                    choice.message.tool_calls = None
+                    choice.finish_reason = "stop"
+
+        return response
 
     def get_model_response_iterator(
             self,
@@ -295,6 +367,6 @@ class GenAIHubOrchestrationConfig(OpenAIGPTConfig):
             json_mode: Optional[bool] = False,
     ):
         if sync_stream:
-            return SAPStreamIterator(response=streaming_response) # type: ignore
+            return SAPStreamIterator(response=streaming_response, json_mode=json_mode or False)  # type: ignore
         else:
-            return AsyncSAPStreamIterator(response=streaming_response) # type: ignore
+            return AsyncSAPStreamIterator(response=streaming_response, json_mode=json_mode or False)  # type: ignore

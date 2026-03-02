@@ -120,12 +120,15 @@ class SAPStreamIterator:
         response: Iterator,
         event_prefix: str = "data: ",
         final_msg: str = "[DONE]",
+        json_mode: bool = False,
     ):
         self._resp = response
         self._iter = response
         self._prefix = event_prefix
         self._final = final_msg
         self._done = False
+        self.json_mode = json_mode
+        self._last_function_name: Optional[str] = None  # Track function name for json mode
 
     def __iter__(self) -> Iterator[OpenAIChatCompletionChunk]:
         return self
@@ -160,6 +163,10 @@ class SAPStreamIterator:
             if chunk is None:
                 continue
 
+            # Convert json_tool_call to content if in json_mode
+            if self.json_mode:
+                chunk = self._convert_json_tool_chunk(chunk)
+
             # Close on terminal
             if _is_terminal_chunk(chunk):
                 self._safe_close()
@@ -168,6 +175,35 @@ class SAPStreamIterator:
 
         self._safe_close()
         raise StopIteration
+
+    def _convert_json_tool_chunk(self, chunk: OpenAIChatCompletionChunk) -> OpenAIChatCompletionChunk:
+        """Convert json_tool_call tool response to content in streaming chunks.
+
+        Uses _convert_tool_response_to_message utility from base_utils following
+        the Databricks pattern.
+        """
+        from litellm.constants import RESPONSE_FORMAT_TOOL_NAME
+        from litellm.llms.base_llm.base_utils import _convert_tool_response_to_message
+
+        for choice in chunk.choices or []:
+            delta = choice.delta
+            if delta and delta.tool_calls:
+                tool_calls = delta.tool_calls
+                # Check if this chunk has a function name
+                function_name = tool_calls[0].function.name if tool_calls[0].function else None
+                if function_name is not None:
+                    self._last_function_name = function_name
+
+                # If the function name matches RESPONSE_FORMAT_TOOL_NAME, convert to content
+                if self._last_function_name == RESPONSE_FORMAT_TOOL_NAME:
+                    message = _convert_tool_response_to_message(tool_calls)
+                    if message is not None:
+                        if message.content == "{}":
+                            message.content = ""
+                        delta.content = message.content
+                        delta.tool_calls = None
+
+        return chunk
 
     def _safe_close(self) -> None:
         if self._done:
@@ -181,15 +217,18 @@ class AsyncSAPStreamIterator:
 
     def __init__(
         self,
-        response:AsyncIterator,
+        response: AsyncIterator,
         event_prefix: str = "data: ",
         final_msg: str = "[DONE]",
+        json_mode: bool = False,
     ):
         self._resp = response
         self._prefix = event_prefix
         self._final = final_msg
         self._line_iter = None
         self._done = False
+        self.json_mode = json_mode
+        self._last_function_name: Optional[str] = None  # Track function name for json mode
 
     def __aiter__(self):
         return self
@@ -233,11 +272,44 @@ class AsyncSAPStreamIterator:
             if chunk is None:
                 continue
 
+            # Convert json_tool_call to content if in json_mode
+            if self.json_mode:
+                chunk = self._convert_json_tool_chunk(chunk)
+
             # If terminal, close BEFORE returning. Next __anext__() will stop immediately.
             if any(c.finish_reason is not None for c in (chunk.choices or [])):
                 await self._aclose()
 
             return chunk
+
+    def _convert_json_tool_chunk(self, chunk: OpenAIChatCompletionChunk) -> OpenAIChatCompletionChunk:
+        """Convert json_tool_call tool response to content in streaming chunks.
+
+        Uses _convert_tool_response_to_message utility from base_utils following
+        the Databricks pattern.
+        """
+        from litellm.constants import RESPONSE_FORMAT_TOOL_NAME
+        from litellm.llms.base_llm.base_utils import _convert_tool_response_to_message
+
+        for choice in chunk.choices or []:
+            delta = choice.delta
+            if delta and delta.tool_calls:
+                tool_calls = delta.tool_calls
+                # Check if this chunk has a function name
+                function_name = tool_calls[0].function.name if tool_calls[0].function else None
+                if function_name is not None:
+                    self._last_function_name = function_name
+
+                # If the function name matches RESPONSE_FORMAT_TOOL_NAME, convert to content
+                if self._last_function_name == RESPONSE_FORMAT_TOOL_NAME:
+                    message = _convert_tool_response_to_message(tool_calls)
+                    if message is not None:
+                        if message.content == "{}":
+                            message.content = ""
+                        delta.content = message.content
+                        delta.tool_calls = None
+
+        return chunk
 
     async def _aclose(self):
         if self._done:
